@@ -5,14 +5,16 @@ const crypto = require('crypto');
 
 exports.handler = async (event, context) => {
   try {
-    // Verify that the request is a POST
+    // Only accept POST requests
     if (event.httpMethod !== 'POST') {
       return { statusCode: 405, body: 'Method Not Allowed' };
     }
 
-    // Verify the webhook
+    // Retrieve the HMAC header
     const hmacHeader = event.headers['x-shopify-hmac-sha256'];
     const body = event.body;
+
+    // Verify the HMAC signature
     const generatedHash = crypto
       .createHmac('sha256', process.env.SHOPIFY_WEBHOOK_SECRET)
       .update(body, 'utf8')
@@ -22,6 +24,7 @@ exports.handler = async (event, context) => {
       return { statusCode: 401, body: 'Unauthorized' };
     }
 
+    // Parse the webhook payload
     const order = JSON.parse(body);
     const customerEmail = order.email;
     const customerFirstName = order.customer.first_name;
@@ -77,23 +80,31 @@ exports.handler = async (event, context) => {
     );
 
     // Optionally, update the order in Shopify with a note
-    const shopifyOrderUpdateUrl = `https://${process.env.SHOP_NAME}.myshopify.com/admin/api/2023-10/orders/${order.id}.json`;
+    const shopifyOrderUpdateUrl = `https://${process.env.SHOP_NAME}.myshopify.com/admin/api/2023-10/graphql.json`;
 
-    await axios.put(
+    const updateOrderQuery = `
+      mutation {
+        orderUpdate(input: {
+          id: "gid://shopify/Order/${order.id}",
+          note: "Scheduling link sent to customer via Klaviyo."
+        }) {
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
+    await axios.post(
       shopifyOrderUpdateUrl,
       {
-        order: {
-          id: order.id,
-          note: `Scheduling link sent to customer via Klaviyo.`,
-        },
+        query: updateOrderQuery,
       },
       {
-        auth: {
-          username: process.env.SHOPIFY_API_KEY,
-          password: process.env.SHOPIFY_API_PASSWORD,
-        },
         headers: {
           'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': process.env.SHOPIFY_ADMIN_API_ACCESS_TOKEN,
         },
       }
     );
