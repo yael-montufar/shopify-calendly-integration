@@ -1,117 +1,148 @@
 // functions/shopify-webhook-handler.js
 
 const axios = require('axios');
-const crypto = require('crypto');
+
+// Load environment variables
+const KLAVIYO_API_KEY = process.env.KLAVIYO_API_KEY;
+const KLAVIYO_LIST_ID = process.env.KLAVIYO_LIST_ID;
+const CALENDLY_API_TOKEN = process.env.CALENDLY_API_TOKEN;
+const CALENDLY_EVENT_TYPE_URI = process.env.CALENDLY_EVENT_TYPE_URI;
 
 exports.handler = async (event, context) => {
   try {
-    // Only accept POST requests
-    if (event.httpMethod !== 'POST') {
-      return { statusCode: 405, body: 'Method Not Allowed' };
-    }
-
-    // Retrieve the HMAC header
+    // Verify that the request is from Shopify
     const hmacHeader = event.headers['x-shopify-hmac-sha256'];
     const body = event.body;
 
-    // Verify the HMAC signature
-    const generatedHash = crypto
-      .createHmac('sha256', process.env.SHOPIFY_WEBHOOK_SECRET)
-      .update(body, 'utf8')
-      .digest('base64');
-
-    if (generatedHash !== hmacHeader) {
-      return { statusCode: 401, body: 'Unauthorized' };
+    if (!verifyShopifyWebhook(hmacHeader, body)) {
+      return {
+        statusCode: 401,
+        body: 'Invalid request',
+      };
     }
 
-    // Parse the webhook payload
     const order = JSON.parse(body);
+
+    // Extract customer information
     const customerEmail = order.email;
-    const customerFirstName = order.customer.first_name;
-    const customerLastName = order.customer.last_name;
+    const firstName = order.customer.first_name;
+    const lastName = order.customer.last_name;
 
-    // Check if the purchased product requires scheduling
-    const purchasedProductIds = order.line_items.map(item => item.product_id.toString());
-    if (!purchasedProductIds.includes(process.env.PRODUCT_ID_REQUIRING_SCHEDULING)) {
-      return { statusCode: 200, body: 'No action required' };
-    }
+    console.log(`Received order from ${firstName} ${lastName} (${customerEmail})`);
 
-    // Generate a unique scheduling link via Calendly API
+    // Create a Calendly scheduling link
+    const schedulingLink = await createCalendlySchedulingLink({
+      email: customerEmail,
+      firstName,
+      lastName,
+    });
+
+    // Add customer to Klaviyo list and send email
+    await addToKlaviyoList({
+      email: customerEmail,
+      firstName,
+      lastName,
+      schedulingLink,
+    });
+
+    return {
+      statusCode: 200,
+      body: 'Success',
+    };
+  } catch (error) {
+    console.error('Error processing webhook:', error);
+    return {
+      statusCode: 500,
+      body: 'Internal Server Error',
+    };
+  }
+};
+
+// Function to verify Shopify webhook signature
+const crypto = require('crypto');
+const SHOPIFY_WEBHOOK_SECRET = process.env.SHOPIFY_WEBHOOK_SECRET;
+
+function verifyShopifyWebhook(hmacHeader, body) {
+  const generatedHash = crypto
+    .createHmac('sha256', SHOPIFY_WEBHOOK_SECRET)
+    .update(body, 'utf8')
+    .digest('base64');
+
+  return generatedHash === hmacHeader;
+}
+
+// Function to create a Calendly scheduling link
+async function createCalendlySchedulingLink({ email, firstName, lastName }) {
+  try {
     const calendlyResponse = await axios.post(
       'https://api.calendly.com/scheduling_links',
       {
         max_event_count: 1,
-        owner: process.env.CALENDLY_EVENT_TYPE_URI,
+        owner: CALENDLY_EVENT_TYPE_URI,
         invitee: {
-          email: customerEmail,
-          first_name: customerFirstName,
-          last_name: customerLastName,
+          email,
+          first_name: firstName,
+          last_name: lastName,
         },
       },
       {
         headers: {
-          Authorization: `Bearer ${process.env.CALENDLY_API_TOKEN}`,
+          Authorization: `Bearer ${CALENDLY_API_TOKEN}`,
           'Content-Type': 'application/json',
         },
       }
     );
 
-    const schedulingLink = calendlyResponse.data.resource.scheduling_url;
+    const schedulingLink = calendlyResponse.data.resource.booking_url;
+    console.log('Created Calendly scheduling link:', schedulingLink);
+    return schedulingLink;
+  } catch (error) {
+    console.error(
+      'Error creating scheduling link via Calendly:',
+      JSON.stringify(
+        error.response ? error.response.data : error.message,
+        null,
+        2
+      )
+    );
+    throw new Error('Failed to create Calendly scheduling link');
+  }
+}
 
-    // Send the scheduling link to the customer via Klaviyo
-    const klaviyoResponse = await axios.post(
-      `https://a.klaviyo.com/api/v2/list/${process.env.KLAVIYO_LIST_ID}/members`,
+// Function to add customer to Klaviyo list and send email
+async function addToKlaviyoList({ email, firstName, lastName, schedulingLink }) {
+  try {
+    // Subscribe customer to a Klaviyo list
+    await axios.post(
+      `https://a.klaviyo.com/api/v2/list/${KLAVIYO_LIST_ID}/subscribe`,
       {
+        api_key: KLAVIYO_API_KEY,
         profiles: [
           {
-            email: customerEmail,
-            first_name: customerFirstName,
-            last_name: customerLastName,
+            email,
+            first_name: firstName,
+            last_name: lastName,
             scheduling_link: schedulingLink,
           },
         ],
       },
       {
         headers: {
-          Authorization: `Klaviyo-API-Key ${process.env.KLAVIYO_PRIVATE_API_KEY}`,
           'Content-Type': 'application/json',
         },
       }
     );
 
-    // Optionally, update the order in Shopify with a note
-    const shopifyOrderUpdateUrl = `https://${process.env.SHOP_NAME}.myshopify.com/admin/api/2023-10/graphql.json`;
-
-    const updateOrderQuery = `
-      mutation {
-        orderUpdate(input: {
-          id: "gid://shopify/Order/${order.id}",
-          note: "Scheduling link sent to customer via Klaviyo."
-        }) {
-          userErrors {
-            field
-            message
-          }
-        }
-      }
-    `;
-
-    await axios.post(
-      shopifyOrderUpdateUrl,
-      {
-        query: updateOrderQuery,
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Shopify-Access-Token': process.env.ADMIN_API_ACCESS_TOKEN,
-        },
-      }
-    );
-
-    return { statusCode: 200, body: 'Webhook processed successfully' };
+    console.log('Added customer to Klaviyo list and sent email.');
   } catch (error) {
-    console.error('Error processing webhook:', error);
-    return { statusCode: 500, body: 'Internal Server Error' };
+    console.error(
+      'Error adding customer to Klaviyo list:',
+      JSON.stringify(
+        error.response ? error.response.data : error.message,
+        null,
+        2
+      )
+    );
+    throw new Error('Failed to add customer to Klaviyo list');
   }
-};
+}
