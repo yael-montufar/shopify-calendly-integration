@@ -53,7 +53,7 @@ exports.handler = async (event, context) => {
 
     // Add the scheduling link to the order notes
     await addNoteToShopifyOrder({
-        orderId: orderId,
+        orderId: order.id,
         schedulingLink,
     });
 
