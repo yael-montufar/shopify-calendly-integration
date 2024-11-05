@@ -5,13 +5,12 @@ const crypto = require('crypto');
 
 // Load environment variables
 const KLAVIYO_API_KEY = process.env.KLAVIYO_API_KEY;
-const KLAVIYO_LIST_ID = process.env.KLAVIYO_LIST_ID;
 const CALENDLY_API_TOKEN = process.env.CALENDLY_API_TOKEN;
 const CALENDLY_EVENT_TYPE_URI = process.env.CALENDLY_EVENT_TYPE_URI;
 const SHOPIFY_WEBHOOK_SECRET = process.env.SHOPIFY_WEBHOOK_SECRET;
 
 exports.handler = async (event, context) => {
-  let schedulingLink; // Declare schedulingLink in the outer scope
+  let schedulingLink;
   try {
     // Verify that the request is from Shopify
     const hmacHeader = event.headers['x-shopify-hmac-sha256'];
@@ -40,12 +39,14 @@ exports.handler = async (event, context) => {
       lastName,
     });
 
-    // Add customer to Klaviyo list and send email
-    await addToKlaviyoList({
+    // Track a custom event in Klaviyo
+    await trackKlaviyoEvent({
       email: customerEmail,
       firstName,
       lastName,
       schedulingLink,
+      orderId: order.id,
+      orderTime: order.created_at,
     });
 
     return {
@@ -110,67 +111,56 @@ async function createCalendlySchedulingLink({ email, firstName, lastName }) {
   }
 }
 
-// Function to add customer to Klaviyo list and send email
-async function addToKlaviyoList({ email, firstName, lastName, schedulingLink }) {
+// Function to track a custom event in Klaviyo
+async function trackKlaviyoEvent({
+  email,
+  firstName,
+  lastName,
+  schedulingLink,
+  orderId,
+  orderTime,
+}) {
   try {
-    // Step 1: Create or update the profile
-    const profileResponse = await axios.post(
-      'https://a.klaviyo.com/api/profiles/',
+    await axios.post(
+      'https://a.klaviyo.com/api/events/',
       {
         data: {
-          type: 'profile',
+          type: 'event',
           attributes: {
-            email: email,
-            first_name: firstName,
-            last_name: lastName,
+            metric: {
+              name: 'Purchase with Scheduling Link',
+            },
+            customer_properties: {
+              $email: email,
+              $first_name: firstName,
+              $last_name: lastName,
+            },
             properties: {
               scheduling_link: schedulingLink,
+              order_id: orderId,
             },
+            time: Math.floor(new Date(orderTime).getTime() / 1000),
           },
         },
       },
       {
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Klaviyo-API-Key ${KLAVIYO_API_KEY}`,
-          'revision': '2023-07-15', // Added revision header
+          Authorization: `Klaviyo-API-Key ${KLAVIYO_API_KEY}`,
+          revision: '2023-07-15',
         },
       }
     );
-
-    const profileId = profileResponse.data.data.id;
-    console.log('Created/Updated Klaviyo profile:', profileId);
-
-    // Step 2: Add the profile to the list
-    await axios.post(
-      `https://a.klaviyo.com/api/lists/${KLAVIYO_LIST_ID}/relationships/profiles/`,
-      {
-        data: [
-          {
-            type: 'profile',
-            id: profileId,
-          },
-        ],
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Klaviyo-API-Key ${KLAVIYO_API_KEY}`,
-          'revision': '2023-07-15', // Added revision header
-        },
-      }
-    );
-
-    console.log('Added profile to Klaviyo list.');
+    console.log('Tracked Klaviyo event for purchase.');
   } catch (error) {
     console.error(
-      'Error adding customer to Klaviyo list:',
+      'Error tracking Klaviyo event:',
       JSON.stringify(
         error.response ? error.response.data : error.message,
         null,
         2
       )
     );
-    throw new Error('Failed to add customer to Klaviyo list');
+    throw new Error('Failed to track Klaviyo event');
   }
 }
