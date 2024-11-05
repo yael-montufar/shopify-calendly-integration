@@ -121,6 +121,9 @@ async function trackKlaviyoEvent({
   orderTime,
 }) {
   try {
+    // Ensure orderTime is in the correct format
+    const eventTime = new Date(orderTime).toISOString(); // Converts to 'YYYY-MM-DDTHH:MM:SSZ' format
+
     await axios.post(
       'https://a.klaviyo.com/api/events/',
       {
@@ -149,7 +152,7 @@ async function trackKlaviyoEvent({
               scheduling_link: schedulingLink,
               order_id: orderId,
             },
-            time: Math.floor(new Date(orderTime).getTime() / 1000),
+            time: eventTime, // Use the correctly formatted date string
           },
         },
       },
