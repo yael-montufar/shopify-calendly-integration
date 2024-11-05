@@ -128,12 +128,22 @@ async function trackKlaviyoEvent({
           type: 'event',
           attributes: {
             metric: {
-              name: 'Purchase with Scheduling Link',
+              data: {
+                type: 'metric',
+                attributes: {
+                  name: 'Purchase with Scheduling Link',
+                },
+              },
             },
-            customer_properties: {
-              $email: email,
-              $first_name: firstName,
-              $last_name: lastName,
+            profile: {
+              data: {
+                type: 'profile',
+                attributes: {
+                  email: email,
+                  first_name: firstName,
+                  last_name: lastName,
+                },
+              },
             },
             properties: {
               scheduling_link: schedulingLink,
