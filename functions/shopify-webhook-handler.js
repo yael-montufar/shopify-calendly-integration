@@ -123,7 +123,7 @@ async function addToKlaviyoList({ email, firstName, lastName, schedulingLink }) 
             email: email,
             first_name: firstName,
             last_name: lastName,
-            custom_properties: {
+            properties: {
               scheduling_link: schedulingLink,
             },
           },
