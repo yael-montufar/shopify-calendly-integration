@@ -4,7 +4,7 @@
   "description": "Integration between Shopify, Calendly, and Klaviyo using Netlify Functions",
   "main": "functions/shopify-webhook-handler.js",
   "scripts": {
-    "subscribe-webhook": "node scripts/subscribe-webhook.js"
+    "build": "node scripts/subscribe-webhook.js"
   },
   "keywords": [],
   "author": "",
