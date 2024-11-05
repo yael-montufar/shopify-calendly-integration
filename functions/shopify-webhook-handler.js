@@ -112,38 +112,42 @@ async function createCalendlySchedulingLink({ email, firstName, lastName }) {
 
 // Function to add customer to Klaviyo list and send email
 async function addToKlaviyoList({ email, firstName, lastName, schedulingLink }) {
-  try {
-    // Subscribe customer to a Klaviyo list
-    await axios.post(
-      `https://a.klaviyo.com/api/v2/list/${KLAVIYO_LIST_ID}/subscribe`,
-      {
-        api_key: KLAVIYO_API_KEY,
-        profiles: [
-          {
-            email,
-            first_name: firstName,
-            last_name: lastName,
-            scheduling_link: schedulingLink,
-          },
-        ],
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
+    try {
+      // Subscribe customer to a Klaviyo list using the new API endpoint
+      await axios.post(
+        `https://a.klaviyo.com/api/lists/${KLAVIYO_LIST_ID}/subscribe/`,
+        {
+          profiles: [
+            {
+              email: email,
+              first_name: firstName,
+              last_name: lastName,
+              properties: {
+                scheduling_link: schedulingLink,
+              },
+            },
+          ],
         },
-      }
-    );
-
-    console.log('Added customer to Klaviyo list and sent email.');
-  } catch (error) {
-    console.error(
-      'Error adding customer to Klaviyo list:',
-      JSON.stringify(
-        error.response ? error.response.data : error.message,
-        null,
-        2
-      )
-    );
-    throw new Error('Failed to add customer to Klaviyo list');
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Klaviyo-API-Key ${KLAVIYO_API_KEY}`,
+            'Revision': '2023-07-15', // Use the latest API revision
+          },
+        }
+      );
+  
+      console.log('Added customer to Klaviyo list and sent email.');
+    } catch (error) {
+      console.error(
+        'Error adding customer to Klaviyo list:',
+        JSON.stringify(
+          error.response ? error.response.data : error.message,
+          null,
+          2
+        )
+      );
+      throw new Error('Failed to add customer to Klaviyo list');
+    }
   }
-}
+  
