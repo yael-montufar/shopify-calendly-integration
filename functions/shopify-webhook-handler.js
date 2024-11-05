@@ -8,6 +8,8 @@ const KLAVIYO_API_KEY = process.env.KLAVIYO_API_KEY;
 const CALENDLY_API_TOKEN = process.env.CALENDLY_API_TOKEN;
 const CALENDLY_EVENT_TYPE_URI = process.env.CALENDLY_EVENT_TYPE_URI;
 const SHOPIFY_WEBHOOK_SECRET = process.env.SHOPIFY_WEBHOOK_SECRET;
+const ADMIN_API_ACCESS_TOKEN = process.env.ADMIN_API_ACCESS_TOKEN;
+const SHOPIFY_STORE_URL = process.env.SHOPIFY_STORE_URL;
 
 exports.handler = async (event, context) => {
   let schedulingLink;
@@ -47,6 +49,12 @@ exports.handler = async (event, context) => {
       schedulingLink,
       orderId: order.id,
       orderTime: order.created_at,
+    });
+
+    // Add the scheduling link to the order notes
+    await addNoteToShopifyOrder({
+        orderId: orderId,
+        schedulingLink,
     });
 
     return {
@@ -177,3 +185,38 @@ async function trackKlaviyoEvent({
     throw new Error('Failed to track Klaviyo event');
   }
 }
+
+
+
+// Function to add a note to the Shopify order
+async function addNoteToShopifyOrder({ orderId, schedulingLink }) {
+    try {
+      // Update the order with the scheduling link in the note attributes
+      await axios.put(
+        `https://${SHOPIFY_STORE_URL}/admin/api/2023-10/orders/${orderId}.json`,
+        {
+          order: {
+            id: orderId,
+            note: `Scheduling Link: ${schedulingLink}`,
+          },
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Shopify-Access-Token': ADMIN_API_ACCESS_TOKEN,
+          },
+        }
+      );
+      console.log('Added scheduling link to Shopify order notes.');
+    } catch (error) {
+      console.error(
+        'Error adding note to Shopify order:',
+        JSON.stringify(
+          error.response ? error.response.data : error.message,
+          null,
+          2
+        )
+      );
+      throw new Error('Failed to add note to Shopify order');
+    }
+  }
