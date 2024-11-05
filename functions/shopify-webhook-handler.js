@@ -104,7 +104,7 @@ exports.handler = async (event, context) => {
       {
         headers: {
           'Content-Type': 'application/json',
-          'X-Shopify-Access-Token': process.env.SHOPIFY_ADMIN_API_ACCESS_TOKEN,
+          'X-Shopify-Access-Token': process.env.ADMIN_API_ACCESS_TOKEN,
         },
       }
     );
