@@ -112,63 +112,64 @@ async function createCalendlySchedulingLink({ email, firstName, lastName }) {
 
 // Function to add customer to Klaviyo list and send email
 async function addToKlaviyoList({ email, firstName, lastName, schedulingLink }) {
-  try {
-    // Step 1: Create or update the profile
-    const profileResponse = await axios.post(
-      'https://a.klaviyo.com/api/profiles/',
-      {
-        data: {
-          type: 'profile',
-          attributes: {
-            email: email,
-            first_name: firstName,
-            last_name: lastName,
-            custom_properties: {
-              scheduling_link: schedulingLink,
+    try {
+      // Step 1: Create or update the profile
+      const profileResponse = await axios.post(
+        'https://a.klaviyo.com/api/profiles/',
+        {
+          data: {
+            type: 'profile',
+            attributes: {
+              email: email,
+              first_name: firstName,
+              last_name: lastName,
+              custom_properties: {
+                scheduling_link: schedulingLink,
+              },
             },
           },
         },
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${KLAVIYO_API_KEY}`,
-        },
-      }
-    );
-
-    const profileId = profileResponse.data.data.id;
-    console.log('Created/Updated Klaviyo profile:', profileId);
-
-    // Step 2: Add the profile to the list
-    await axios.post(
-      `https://a.klaviyo.com/api/lists/${KLAVIYO_LIST_ID}/relationships/profiles/`,
-      {
-        data: [
-          {
-            type: 'profile',
-            id: profileId,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Klaviyo-API-Key ${KLAVIYO_API_KEY}`,
           },
-        ],
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${KLAVIYO_API_KEY}`,
+        }
+      );
+  
+      const profileId = profileResponse.data.data.id;
+      console.log('Created/Updated Klaviyo profile:', profileId);
+  
+      // Step 2: Add the profile to the list
+      await axios.post(
+        `https://a.klaviyo.com/api/lists/${KLAVIYO_LIST_ID}/relationships/profiles/`,
+        {
+          data: [
+            {
+              type: 'profile',
+              id: profileId,
+            },
+          ],
         },
-      }
-    );
-
-    console.log('Added profile to Klaviyo list.');
-  } catch (error) {
-    console.error(
-      'Error adding customer to Klaviyo list:',
-      JSON.stringify(
-        error.response ? error.response.data : error.message,
-        null,
-        2
-      )
-    );
-    throw new Error('Failed to add customer to Klaviyo list');
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Klaviyo-API-Key ${KLAVIYO_API_KEY}`,
+          },
+        }
+      );
+  
+      console.log('Added profile to Klaviyo list.');
+    } catch (error) {
+      console.error(
+        'Error adding customer to Klaviyo list:',
+        JSON.stringify(
+          error.response ? error.response.data : error.message,
+          null,
+          2
+        )
+      );
+      throw new Error('Failed to add customer to Klaviyo list');
+    }
   }
-}
+  
