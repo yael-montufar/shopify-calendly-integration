@@ -30,12 +30,45 @@ exports.handler = async (event, context) => {
 
     console.log(`Received order from ${firstName} ${lastName} (${customerEmail})`);
 
-    // Create a Calendly scheduling link
-    const schedulingLink = await createCalendlySchedulingLink({
-      email: customerEmail,
-      firstName,
-      lastName,
-    });
+    // Function to create a Calendly scheduling link
+async function createCalendlySchedulingLink({ email, firstName, lastName }) {
+    try {
+      const calendlyResponse = await axios.post(
+        'https://api.calendly.com/scheduling_links',
+        {
+          max_event_count: 1,
+          owner: CALENDLY_EVENT_TYPE_URI,
+          owner_type: 'EventType',
+          invitee: {
+            email,
+            first_name: firstName,
+            last_name: lastName,
+          },
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${CALENDLY_API_TOKEN}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+  
+      const schedulingLink = calendlyResponse.data.resource.booking_url;
+      console.log('Created Calendly scheduling link:', schedulingLink);
+      return schedulingLink;
+    } catch (error) {
+      console.error(
+        'Error creating scheduling link via Calendly:',
+        JSON.stringify(
+          error.response ? error.response.data : error.message,
+          null,
+          2
+        )
+      );
+      throw new Error('Failed to create Calendly scheduling link');
+    }
+}
+  
 
     // Add customer to Klaviyo list and send email
     await addToKlaviyoList({
