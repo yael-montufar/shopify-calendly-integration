@@ -15,10 +15,10 @@ async function subscribeToWebhook() {
 
   const endpoint = `https://${SHOP_NAME}.myshopify.com/admin/api/2023-10/graphql.json`;
 
-  // Query to check existing webhook subscriptions
+  // Query to get existing webhook subscriptions
   const checkQuery = `
-    query webhookSubscriptions($first: Int!, $callbackUrl: URL, $topic: WebhookSubscriptionTopic) {
-      webhookSubscriptions(first: $first, callbackUrl: $callbackUrl, topics: [$topic]) {
+    {
+      webhookSubscriptions(first: 100) {
         edges {
           node {
             id
@@ -30,17 +30,11 @@ async function subscribeToWebhook() {
     }
   `;
 
-  const checkVariables = {
-    first: 100,
-    callbackUrl: WEBHOOK_ADDRESS,
-    topic: WEBHOOK_TOPIC,
-  };
-
   try {
-    // Check for existing webhook subscriptions
+    // Fetch existing webhook subscriptions
     const checkResponse = await axios.post(
       endpoint,
-      { query: checkQuery, variables: checkVariables },
+      { query: checkQuery },
       {
         headers: {
           'Content-Type': 'application/json',
@@ -49,11 +43,25 @@ async function subscribeToWebhook() {
       }
     );
 
-    const existingWebhooks = checkResponse.data.data.webhookSubscriptions.edges;
+    const responseData = checkResponse.data;
 
-    // Check if our webhook already exists
-    const webhookExists = existingWebhooks.some(
-      webhook => webhook.node.callbackUrl === WEBHOOK_ADDRESS && webhook.node.topic === WEBHOOK_TOPIC
+    // Check for errors in the response
+    if (responseData.errors && responseData.errors.length > 0) {
+      console.error('GraphQL Errors:', JSON.stringify(responseData.errors, null, 2));
+      return;
+    }
+
+    if (!responseData.data) {
+      console.error('No data returned from API.');
+      return;
+    }
+
+    const webhooks = responseData.data.webhookSubscriptions.edges;
+
+    // Filter webhooks to find if our webhook already exists
+    const webhookExists = webhooks.some(
+      webhook =>
+        webhook.node.callbackUrl === WEBHOOK_ADDRESS && webhook.node.topic === WEBHOOK_TOPIC
     );
 
     if (webhookExists) {
@@ -98,8 +106,8 @@ async function subscribeToWebhook() {
 
     const createData = createResponse.data;
 
-    if (createData.errors) {
-      console.error('Errors:', JSON.stringify(createData.errors, null, 2));
+    if (createData.errors && createData.errors.length > 0) {
+      console.error('GraphQL Errors:', JSON.stringify(createData.errors, null, 2));
     } else if (createData.data.webhookSubscriptionCreate.userErrors.length > 0) {
       console.error(
         'User Errors:',
@@ -114,7 +122,10 @@ async function subscribeToWebhook() {
 
     console.log('Webhook subscription process completed.');
   } catch (error) {
-    console.error('Error subscribing to webhook:', error.response ? error.response.data : error);
+    console.error(
+      'Error subscribing to webhook:',
+      error.response ? JSON.stringify(error.response.data, null, 2) : error.message
+    );
   }
 }
 
