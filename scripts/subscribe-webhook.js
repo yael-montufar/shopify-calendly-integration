@@ -3,32 +3,44 @@
 const axios = require('axios');
 
 const SHOP_NAME = process.env.SHOP_NAME;
-const ADMIN_API_ACCESS_TOKEN = process.env.SHOPIFY_ADMIN_API_ACCESS_TOKEN;
+const ADMIN_API_ACCESS_TOKEN = process.env.ADMIN_API_ACCESS_TOKEN;
 const WEBHOOK_ADDRESS = process.env.WEBHOOK_ADDRESS;
 const WEBHOOK_TOPIC = 'ORDERS_CREATE'; // GraphQL Enum value
 
 async function subscribeToWebhook() {
+  console.log('Starting webhook subscription process...');
+  console.log('Shop Name:', SHOP_NAME);
+  console.log('Webhook Address:', WEBHOOK_ADDRESS);
+  console.log('Webhook Topic:', WEBHOOK_TOPIC);
+
   const endpoint = `https://${SHOP_NAME}.myshopify.com/admin/api/2023-10/graphql.json`;
 
-  // Query to check existing webhooks
+  // Query to check existing webhook subscriptions
   const checkQuery = `
-    {
-      webhookSubscriptions(first: 100, topics: ${WEBHOOK_TOPIC}) {
+    query webhookSubscriptions($first: Int!, $callbackUrl: URL, $topic: WebhookSubscriptionTopic) {
+      webhookSubscriptions(first: $first, callbackUrl: $callbackUrl, topics: [$topic]) {
         edges {
           node {
             id
-            endpoint
+            callbackUrl
+            topic
           }
         }
       }
     }
   `;
 
+  const checkVariables = {
+    first: 100,
+    callbackUrl: WEBHOOK_ADDRESS,
+    topic: WEBHOOK_TOPIC,
+  };
+
   try {
     // Check for existing webhook subscriptions
     const checkResponse = await axios.post(
       endpoint,
-      { query: checkQuery },
+      { query: checkQuery, variables: checkVariables },
       {
         headers: {
           'Content-Type': 'application/json',
@@ -40,14 +52,18 @@ async function subscribeToWebhook() {
     const existingWebhooks = checkResponse.data.data.webhookSubscriptions.edges;
 
     // Check if our webhook already exists
-    const webhookExists = existingWebhooks.some(webhook => webhook.node.endpoint === WEBHOOK_ADDRESS);
+    const webhookExists = existingWebhooks.some(
+      webhook => webhook.node.callbackUrl === WEBHOOK_ADDRESS && webhook.node.topic === WEBHOOK_TOPIC
+    );
 
     if (webhookExists) {
       console.log('Webhook subscription already exists.');
       return;
     }
 
-    // Create the webhook subscription
+    console.log('No existing webhook found. Creating a new webhook subscription...');
+
+    // Mutation to create the webhook subscription
     const createQuery = `
       mutation webhookSubscriptionCreate($topic: WebhookSubscriptionTopic!, $callbackUrl: URL!) {
         webhookSubscriptionCreate(topic: $topic, webhookSubscription: {callbackUrl: $callbackUrl}) {
@@ -57,19 +73,21 @@ async function subscribeToWebhook() {
           }
           webhookSubscription {
             id
+            topic
+            callbackUrl
           }
         }
       }
     `;
 
-    const variables = {
+    const createVariables = {
       topic: WEBHOOK_TOPIC,
       callbackUrl: WEBHOOK_ADDRESS,
     };
 
     const createResponse = await axios.post(
       endpoint,
-      { query: createQuery, variables },
+      { query: createQuery, variables: createVariables },
       {
         headers: {
           'Content-Type': 'application/json',
@@ -89,10 +107,12 @@ async function subscribeToWebhook() {
       );
     } else {
       console.log(
-        'Webhook subscription created with ID:',
-        createData.data.webhookSubscriptionCreate.webhookSubscription.id
+        'Webhook subscription created successfully:',
+        JSON.stringify(createData.data.webhookSubscriptionCreate.webhookSubscription, null, 2)
       );
     }
+
+    console.log('Webhook subscription process completed.');
   } catch (error) {
     console.error('Error subscribing to webhook:', error.response ? error.response.data : error);
   }
