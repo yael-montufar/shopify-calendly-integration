@@ -23,10 +23,12 @@ exports.handler = async (event, context) => {
 
     console.log(`Received order from ${firstName} ${lastName} (${customerEmail})`);
 
-    let schedulingLinks = []; // Array to hold multiple scheduling links
+    let schedulingLinks = []; // Array to hold all scheduling links
 
     for (const lineItem of order.line_items) {
       const productId = lineItem.product_id;
+      const quantity = lineItem.quantity; // Number of times the event was purchased
+
       const eventHandle = await getCalendlyEventHandle(productId);
 
       if (eventHandle) {
@@ -36,15 +38,17 @@ exports.handler = async (event, context) => {
         const eventTypeUri = await getCalendlyEventTypeUri(eventHandle);
 
         if (eventTypeUri) {
-          const schedulingLink = await createCalendlySchedulingLink({
-            email: customerEmail,
-            firstName,
-            lastName,
-            eventTypeUri,
-          });
+          // Generate a unique link for each item in the quantity
+          for (let i = 0; i < quantity; i++) {
+            const schedulingLink = await createCalendlySchedulingLink({
+              email: customerEmail,
+              firstName,
+              lastName,
+              eventTypeUri,
+            });
 
-          // Add each scheduling link to the array
-          schedulingLinks.push({ title: lineItem.title, link: schedulingLink });
+            schedulingLinks.push({ title: `${lineItem.title} (Ticket ${i + 1})`, link: schedulingLink });
+          }
         } else {
           console.warn(`No matching event found for handle: ${eventHandle}`);
         }
