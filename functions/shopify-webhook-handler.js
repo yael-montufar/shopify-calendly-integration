@@ -76,6 +76,16 @@ exports.handler = async (event, context) => {
   }
 };
 
+// Function to verify Shopify webhook signature
+function verifyShopifyWebhook(hmacHeader, body) {
+  const generatedHash = crypto
+    .createHmac('sha256', SHOPIFY_WEBHOOK_SECRET)
+    .update(body, 'utf8')
+    .digest('base64');
+
+  return generatedHash === hmacHeader;
+}
+
 // Function to retrieve the Calendly event handle metafield for a product
 async function getCalendlyEventHandle(productId) {
   try {
@@ -127,7 +137,7 @@ async function getCalendlyEventTypeUri(eventHandle) {
   }
 }
 
-// Modified function to create Calendly scheduling link
+// Function to create Calendly scheduling link
 async function createCalendlySchedulingLink({ email, firstName, lastName, eventTypeUri }) {
   try {
     const calendlyResponse = await axios.post(
@@ -162,7 +172,7 @@ async function createCalendlySchedulingLink({ email, firstName, lastName, eventT
   }
 }
 
-// Modified function to track a custom event in Klaviyo
+// Function to track a custom event in Klaviyo
 async function trackKlaviyoEvent({
   email,
   firstName,
@@ -224,7 +234,7 @@ async function trackKlaviyoEvent({
   }
 }
 
-// Modified function to add a note with multiple scheduling links to the Shopify order
+// Function to add a note with multiple scheduling links to the Shopify order
 async function addNoteToShopifyOrder({ orderId, schedulingLinks }) {
   try {
     const notes = schedulingLinks
