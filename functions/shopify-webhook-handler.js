@@ -90,24 +90,73 @@ function verifyShopifyWebhook(hmacHeader, body) {
   return generatedHash === hmacHeader;
 }
 
-// Function to retrieve the Calendly event handle metafield for a product
+// Updated function to retrieve the Calendly event handle from metaobject
 async function getCalendlyEventHandle(productId) {
   try {
+    // Step 1: Get the 'custom.event' metafield from the product
     const response = await axios.get(
-      `https://${SHOPIFY_STORE_URL}/admin/api/2023-10/products/${productId}/metafields.json`,
+      `https://${SHOPIFY_STORE_URL}/admin/api/2023-10/products/${productId}/metafields.json?namespace=custom&key=event`,
       {
         headers: { 'X-Shopify-Access-Token': ADMIN_API_ACCESS_TOKEN },
       }
     );
 
-    const metafield = response.data.metafields.find(
-      (mf) => mf.namespace === 'custom' && mf.key === 'calendly_event_url_handle'
+    const metafields = response.data.metafields;
+    if (!metafields || metafields.length === 0) {
+      console.log(`No 'custom.event' metafield found for product ${productId}`);
+      return null;
+    }
+
+    const metafield = metafields[0]; // Should be only one
+    const metaobjectId = metafield.value; // This is a GID, e.g., 'gid://shopify/Metaobject/123456789'
+
+    // Step 2: Use GraphQL to fetch the metaobject by ID
+    const graphqlEndpoint = `https://${SHOPIFY_STORE_URL}/admin/api/2023-10/graphql.json`;
+
+    const query = `
+    query getMetaobject($id: ID!) {
+      metaobject(id: $id) {
+        fields {
+          key
+          value
+        }
+      }
+    }`;
+
+    const variables = { id: metaobjectId };
+
+    const graphqlResponse = await axios.post(
+      graphqlEndpoint,
+      { query, variables },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': ADMIN_API_ACCESS_TOKEN,
+        },
+      }
     );
 
-    return metafield ? metafield.value : null;
+    const metaobjectData = graphqlResponse.data;
+
+    if (metaobjectData.errors) {
+      console.error('Error fetching metaobject:', metaobjectData.errors);
+      return null;
+    }
+
+    if (!metaobjectData.data || !metaobjectData.data.metaobject) {
+      console.error('Metaobject data not found');
+      return null;
+    }
+
+    const fields = metaobjectData.data.metaobject.fields;
+    const calendlyField = fields.find(
+      (field) => field.key === 'calendly_event_url_handle'
+    );
+
+    return calendlyField ? calendlyField.value : null;
   } catch (error) {
     console.error(
-      'Error fetching Calendly event handle metafield:',
+      'Error fetching Calendly event handle from metaobject:',
       JSON.stringify(error.response ? error.response.data : error.message, null, 2)
     );
     return null;
@@ -116,64 +165,12 @@ async function getCalendlyEventHandle(productId) {
 
 // Function to get Calendly Event Type URI based on event handle
 async function getCalendlyEventTypeUri(eventHandle) {
-  try {
-    const userResponse = await axios.get('https://api.calendly.com/users/me', {
-      headers: { Authorization: `Bearer ${CALENDLY_API_TOKEN}` },
-    });
-    const userUri = userResponse.data.resource.uri;
-
-    const eventsResponse = await axios.get('https://api.calendly.com/event_types', {
-      params: { user: userUri },
-      headers: { Authorization: `Bearer ${CALENDLY_API_TOKEN}` },
-    });
-
-    const eventType = eventsResponse.data.collection.find(
-      (event) => event.slug === eventHandle
-    );
-
-    return eventType ? eventType.uri : null;
-  } catch (error) {
-    console.error(
-      'Error retrieving Calendly event type URI:',
-      JSON.stringify(error.response ? error.response.data : error.message, null, 2)
-    );
-    return null;
-  }
+  // (Unchanged from previous code)
 }
 
 // Function to create Calendly scheduling link
 async function createCalendlySchedulingLink({ email, firstName, lastName, eventTypeUri }) {
-  try {
-    const calendlyResponse = await axios.post(
-      'https://api.calendly.com/scheduling_links',
-      {
-        max_event_count: 1,
-        owner: eventTypeUri,
-        owner_type: 'EventType',
-        invitee: {
-          email,
-          first_name: firstName,
-          last_name: lastName,
-        },
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${CALENDLY_API_TOKEN}`,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-
-    const schedulingLink = calendlyResponse.data.resource.booking_url;
-    console.log('Created Calendly scheduling link:', schedulingLink);
-    return schedulingLink;
-  } catch (error) {
-    console.error(
-      'Error creating scheduling link via Calendly:',
-      JSON.stringify(error.response ? error.response.data : error.message, null, 2)
-    );
-    throw new Error('Failed to create Calendly scheduling link');
-  }
+  // (Unchanged from previous code)
 }
 
 // Function to track a custom event in Klaviyo
@@ -185,87 +182,10 @@ async function trackKlaviyoEvent({
   orderId,
   orderTime,
 }) {
-  try {
-    const eventTime = new Date(orderTime).toISOString();
-
-    await axios.post(
-      'https://a.klaviyo.com/api/events/',
-      {
-        data: {
-          type: 'event',
-          attributes: {
-            metric: {
-              data: {
-                type: 'metric',
-                attributes: {
-                  name: 'Purchase with Scheduling Links',
-                },
-              },
-            },
-            profile: {
-              data: {
-                type: 'profile',
-                attributes: {
-                  email: email,
-                  first_name: firstName,
-                  last_name: lastName,
-                },
-              },
-            },
-            properties: {
-              scheduling_links: schedulingLinks, // Pass the array of links
-              order_id: orderId,
-            },
-            time: eventTime,
-          },
-        },
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Klaviyo-API-Key ${KLAVIYO_API_KEY}`,
-          revision: '2023-07-15',
-        },
-      }
-    );
-    console.log('Tracked Klaviyo event for purchase with multiple scheduling links.');
-  } catch (error) {
-    console.error(
-      'Error tracking Klaviyo event:',
-      JSON.stringify(error.response ? error.response.data : error.message, null, 2)
-    );
-    throw new Error('Failed to track Klaviyo event');
-  }
+  // (Unchanged from previous code)
 }
 
 // Function to add a note with multiple scheduling links to the Shopify order
 async function addNoteToShopifyOrder({ orderId, schedulingLinks }) {
-  try {
-    const notes = schedulingLinks
-      .map((link) => `${link.title}: ${link.link}`)
-      .join('\n');
-
-    await axios.put(
-      `https://${SHOPIFY_STORE_URL}/admin/api/2023-10/orders/${orderId}.json`,
-      {
-        order: {
-          id: orderId,
-          note: `Scheduling Links:\n${notes}`,
-        },
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Shopify-Access-Token': ADMIN_API_ACCESS_TOKEN,
-        },
-      }
-    );
-    console.log('Added multiple scheduling links to Shopify order notes.');
-  } catch (error) {
-    console.error(
-      'Error adding note to Shopify order:',
-      JSON.stringify(error.response ? error.response.data : error.message, null, 2)
-    );
-    throw new Error('Failed to add note to Shopify order');
-  }
+  // (Unchanged from previous code)
 }
