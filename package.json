@@ -1,5 +1,5 @@
 {
-  "name": "shopify-calendly-integration",
+  "name": "shopify-calendly-klaviyo-integration",
   "version": "1.0.0",
   "description": "Integration between Shopify, Calendly, and Klaviyo using Netlify Functions",
   "main": "functions/shopify-webhook-handler.js",
