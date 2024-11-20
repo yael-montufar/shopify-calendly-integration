@@ -90,42 +90,35 @@ function verifyShopifyWebhook(hmacHeader, body) {
   return generatedHash === hmacHeader;
 }
 
-// Updated function to retrieve the Calendly event handle from metaobject
+// Updated function to retrieve the Calendly event handle from metaobject using GraphQL
 async function getCalendlyEventHandle(productId) {
   try {
-    // Step 1: Get the 'custom.event' metafield from the product
-    const response = await axios.get(
-      `https://${SHOPIFY_STORE_URL}/admin/api/2023-10/products/${productId}/metafields.json?namespace=custom&key=event`,
-      {
-        headers: { 'X-Shopify-Access-Token': ADMIN_API_ACCESS_TOKEN },
-      }
-    );
-
-    const metafields = response.data.metafields;
-    if (!metafields || metafields.length === 0) {
-      console.log(`No 'custom.event' metafield found for product ${productId}`);
-      return null;
-    }
-
-    const metafield = metafields[0]; // Should be only one
-    const metaobjectId = metafield.value; // This is a GID, e.g., 'gid://shopify/Metaobject/123456789'
-
-    // Step 2: Use GraphQL to fetch the metaobject by ID
     const graphqlEndpoint = `https://${SHOPIFY_STORE_URL}/admin/api/2023-10/graphql.json`;
 
+    // Query to get the 'custom.event' metafield from the product
     const query = `
-    query getMetaobject($id: ID!) {
-      metaobject(id: $id) {
-        fields {
-          key
-          value
+      query GetProductMetafield($productId: ID!) {
+        product(id: $productId) {
+          metafield(namespace: "custom", key: "event") {
+            reference {
+              ... on Metaobject {
+                id
+                fields {
+                  key
+                  value
+                }
+              }
+            }
+          }
         }
       }
-    }`;
+    `;
 
-    const variables = { id: metaobjectId };
+    const variables = {
+      productId: `gid://shopify/Product/${productId}`,
+    };
 
-    const graphqlResponse = await axios.post(
+    const response = await axios.post(
       graphqlEndpoint,
       { query, variables },
       {
@@ -136,22 +129,24 @@ async function getCalendlyEventHandle(productId) {
       }
     );
 
-    const metaobjectData = graphqlResponse.data;
+    const data = response.data;
 
-    if (metaobjectData.errors) {
-      console.error('Error fetching metaobject:', metaobjectData.errors);
+    if (data.errors) {
+      console.error('GraphQL errors:', data.errors);
       return null;
     }
 
-    if (!metaobjectData.data || !metaobjectData.data.metaobject) {
-      console.error('Metaobject data not found');
+    const metafield = data.data.product.metafield;
+
+    if (!metafield || !metafield.reference) {
+      console.log(`No 'custom.event' metafield found for product ${productId}`);
       return null;
     }
 
-    const fields = metaobjectData.data.metaobject.fields;
-    const calendlyField = fields.find(
-      (field) => field.key === 'calendly_event_url_handle'
-    );
+    const metaobject = metafield.reference;
+
+    const fields = metaobject.fields;
+    const calendlyField = fields.find((field) => field.key === 'calendly_event_url_handle');
 
     return calendlyField ? calendlyField.value : null;
   } catch (error) {
@@ -290,21 +285,40 @@ async function trackKlaviyoEvent({
   }
 }
 
-// Function to add a note with multiple scheduling links to the Shopify order
+// Updated function to add a note with multiple scheduling links to the Shopify order using GraphQL
 async function addNoteToShopifyOrder({ orderId, schedulingLinks }) {
   try {
+    const graphqlEndpoint = `https://${SHOPIFY_STORE_URL}/admin/api/2023-10/graphql.json`;
+
     const notes = schedulingLinks
       .map((link) => `${link.title}: ${link.link}`)
       .join('\n');
 
-    await axios.put(
-      `https://${SHOPIFY_STORE_URL}/admin/api/2023-10/orders/${orderId}.json`,
-      {
-        order: {
-          id: orderId,
-          note: `Scheduling Links:\n${notes}`,
-        },
+    const mutation = `
+      mutation UpdateOrder($input: OrderInput!) {
+        orderUpdate(input: $input) {
+          order {
+            id
+            note
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
+    const variables = {
+      input: {
+        id: `gid://shopify/Order/${orderId}`,
+        note: `Scheduling Links:\n${notes}`,
       },
+    };
+
+    const response = await axios.post(
+      graphqlEndpoint,
+      { query: mutation, variables },
       {
         headers: {
           'Content-Type': 'application/json',
@@ -312,6 +326,21 @@ async function addNoteToShopifyOrder({ orderId, schedulingLinks }) {
         },
       }
     );
+
+    const data = response.data;
+
+    if (data.errors) {
+      console.error('GraphQL errors:', data.errors);
+      throw new Error('Failed to add note to Shopify order');
+    }
+
+    const userErrors = data.data.orderUpdate.userErrors;
+
+    if (userErrors.length > 0) {
+      console.error('User errors:', userErrors);
+      throw new Error('Failed to add note to Shopify order');
+    }
+
     console.log('Added multiple scheduling links to Shopify order notes.');
   } catch (error) {
     console.error(
