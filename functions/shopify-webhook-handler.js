@@ -245,7 +245,7 @@ async function trackKlaviyoEvent({
               data: {
                 type: 'metric',
                 attributes: {
-                  name: 'Purchase with Scheduling Links',
+                  name: 'Placed Order Containing Event',
                 },
               },
             },
